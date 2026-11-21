@@ -1,0 +1,7 @@
+.venv/
+outputs/
+models/
+data/
+/*.csv
+__pycache__/
+.pytest_cache/

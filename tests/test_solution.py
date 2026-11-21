@@ -1,0 +1,149 @@
+import shutil
+import warnings
+import numpy as np
+import pandas as pd
+import pytest
+from src.schema import cube_to_wide, read_test_csv
+from src.synthetic import synthetic_background, add_controlled_passages, write_synthetic_release, make_synthetic_competition
+from src.data import load_release, make_windows
+from src.features import window_features
+from src.train import train
+from src.models import predict_cube
+from src.predict import predict, COLUMNS
+from src.evaluate import rmse, leaderboard_score, evaluate_frames
+from src.pressure_map import pressure_map
+
+
+def test_schema(tmp_path):
+    cube = synthetic_background(3)
+    path = tmp_path / 'test.csv'
+    df = cube_to_wide(['a', 'b', 'c'], cube)
+    df = df.rename(columns={'m01_TOL_1000': 'm1_TOL_1000.0', 'm02_TOL_31.6': 'm2_TOL_31.62'})
+    df.to_csv(path, index=False)
+    ids, actual = read_test_csv(path)
+    assert ids.tolist() == ['a', 'b', 'c']
+    np.testing.assert_allclose(actual, cube, equal_nan=True)
+    df.rename(columns={'m1_TOL_1000.0': 'm1_TOL_99999'}).to_csv(path, index=False)
+    with pytest.raises(ValueError, match='frequency'):
+        read_test_csv(path)
+
+
+def test_share_definition():
+    rng = np.random.default_rng(42)
+    bg = synthetic_background(20, rng)
+    mix, share, presence, _ = add_controlled_passages(bg, rng, p_none=0)
+    eb, em = 10 ** (bg.astype(float) / 10), 10 ** (mix / 10)
+    expected = np.nansum(em - eb, axis=(1, 2)) / np.nansum(em, axis=(1, 2))
+    np.testing.assert_allclose(share, expected, atol=1e-12)
+    assert presence.all()
+    assert np.array_equal(np.isnan(bg), np.isnan(mix))
+    none, zero, p, _ = add_controlled_passages(bg, rng, p_none=1)
+    np.testing.assert_allclose(none, bg, equal_nan=True)
+    assert not zero.any() and not p.any()
+    empty = np.full((15, 25), np.nan)
+    assert add_controlled_passages(empty, rng, p_none=0)[1] == 0
+
+
+def test_features_nan_safe():
+    cube = synthetic_background(3)
+    cube[:, :, 2] = np.nan
+    cube[0] = np.nan
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', RuntimeWarning)
+        features = window_features(cube)
+    assert not np.isinf(features.to_numpy()).any()
+    assert features.b2_mean.isna().all()
+    np.testing.assert_allclose(window_features(cube[1:]).to_numpy(), features.iloc[1:].to_numpy(), equal_nan=True)
+
+
+def test_two_added_units_in_ten(monkeypatch):
+    import src.synthetic as synthetic
+    class FixedDraw:
+        def random(self):
+            return .9
+
+        def beta(self, a, b):
+            return .2 / .95
+
+        def choice(self, values):
+            return values[0]
+    monkeypatch.setattr(synthetic, 'vessel_passage_reference', lambda rng, kind: np.ones((15, 25)))
+    bg = np.full((15, 25), np.nan)
+    bg[0, 0] = 10 * np.log10(8)
+    mix, share, _, _ = add_controlled_passages(bg, FixedDraw(), p_none=0)
+    assert share == pytest.approx(.2)
+    assert 10 ** (mix[0, 0] / 10) == pytest.approx(10)
+
+
+@pytest.fixture(scope='module')
+def trained(tmp_path_factory):
+    root = tmp_path_factory.mktemp('pipeline')
+    release = write_synthetic_release(root / 'release', days=.12)
+    a, _ = train(release, root / 'model_a', augment_k=2, n_estimators=30)
+    b, _ = train(release, root / 'model_b', augment_k=2, n_estimators=30)
+    return root, release, a, b
+
+
+def test_loader_folder_zip(trained):
+    root, release, _, _ = trained
+    df = load_release(release)
+    archive = shutil.make_archive(str(root / 'archive'), 'zip', release)
+    pd.testing.assert_frame_equal(df, load_release(archive))
+    cube, meta = make_windows(df)
+    assert cube.shape == (44, 15, 25)
+    assert meta.site.nunique() == 4
+    file = next((release / 'acoustics').glob('*.parquet'))
+    raw = pd.read_parquet(file)
+    raw.loc[0, 'dur'] = 5
+    raw.loc[1, 'qc_flag'] = 1
+    raw.to_parquet(root / 'bad.parquet')
+    bad_release = root / 'bad_release' / 'acoustics'
+    bad_release.mkdir(parents=True)
+    shutil.copy(root / 'bad.parquet', bad_release / 'site.parquet')
+    assert len(load_release(bad_release.parent, drop_bad_flags=True)) == len(raw) - 2
+
+
+def test_pipeline_determinism_and_independence(trained):
+    root, _, a, b = trained
+    comp = make_synthetic_competition(root / 'comp', n_test=12)
+    template = pd.read_csv(comp / 'sample_submission.csv').iloc[::-1]
+    template.to_csv(comp / 'sample_submission.csv', index=False)
+    sub = predict(comp / 'Test.csv', a, comp / 'sample_submission.csv', root / 'submission.csv')
+    assert list(sub) == COLUMNS
+    assert sub.ID.tolist() == template.ID.tolist()
+    assert np.isfinite(sub.iloc[:, 1:]).all().all()
+    assert ((sub.iloc[:, 1:] >= 0) & (sub.iloc[:, 1:] <= 1)).all().all()
+    _, cube = read_test_csv(comp / 'Test.csv')
+    p, score = predict_cube(a, cube)
+    p2, s2 = predict_cube(b, cube)
+    np.testing.assert_array_equal(p, p2)
+    np.testing.assert_array_equal(score, s2)
+    single, ss = predict_cube(a, cube[[3]])
+    np.testing.assert_allclose(single, p[[3]], rtol=0, atol=1e-14)
+    np.testing.assert_allclose(ss, score[[3]], rtol=0, atol=1e-14)
+    with pytest.raises(ValueError, match='Sample'):
+        predict(comp / 'Test.csv', a, _bad_sample(root, template), root / 'invalid.csv')
+
+
+def _bad_sample(root, template):
+    path = root / 'bad_sample.csv'
+    template.iloc[:-1].to_csv(path, index=False)
+    return path
+
+
+def test_evaluation():
+    assert rmse([0, 1], [0, 0]) == np.sqrt(.5)
+    assert leaderboard_score([0, 1], [0, 0]) == 1 - np.sqrt(.5)
+    labels = pd.DataFrame({'ID': ['a', 'b'], 'share_added_vessel': [0, 1], 'site': ['s', 't']})
+    sub = pd.DataFrame({'ID': ['a', 'b'], 'share_added_vessel': [0, 0], 'score_added_vessel': [.1, .9]})
+    result = evaluate_frames(sub, labels)
+    assert result['auc'] == 1
+    assert 'site_cluster_ci' in result
+
+
+def test_pressure_maps(trained):
+    root, release, _, _ = trained
+    summary = pressure_map(release, root / 'maps', root / 'model_a' / 'bundle.joblib')
+    assert summary.SYNTHETIC.all()
+    for filename in ['station_map.png', 'daily_levels.png', 'daily_relative.png', 'inferred_share_map.png', 'station_summary.csv']:
+        assert (root / 'maps' / filename).stat().st_size > 0
