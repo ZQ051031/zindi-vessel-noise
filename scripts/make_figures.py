@@ -2,6 +2,9 @@
 from pathlib import Path
 import json
 import resource
+import os
+import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -27,8 +30,13 @@ def main():
     figures, tables = root / 'writeup/figures', root / 'writeup/tables'
     figures.mkdir(parents=True, exist_ok=True)
     tables.mkdir(parents=True, exist_ok=True)
-    subprocess.run([sys.executable, '-m', 'src.run_synthetic_demo', '--out-dir', str(work),
-                    '--days', '2', '--n-test', '600', '--augment-k', '4', '--seed', '42'], cwd=root, check=True)
+    demo = subprocess.run([sys.executable, '-m', 'src.run_synthetic_demo', '--out-dir', str(work),
+                           '--days', '2', '--n-test', '600', '--augment-k', '4', '--seed', '42'],
+                          cwd=root, check=True, capture_output=True, text=True)
+    print(demo.stdout)
+    inference = re.search(r'Inference seconds: ([0-9.]+); peak process RSS MiB: ([0-9.]+)', demo.stdout)
+    if inference is None:
+        raise ValueError('Missing inference runtime/memory measurement')
     metrics = json.loads((work / 'models/metrics.json').read_text())
     heldout = json.loads((work / 'SYNTHETIC_evaluation.json').read_text())
     oof = pd.read_parquet(work / 'models/SYNTHETIC_addition_oof.parquet')
@@ -131,6 +139,9 @@ def main():
                'ablations': ablations.to_dict('records'), 'training_seconds': metrics['training_seconds'],
                'model_bytes': metrics['model_bytes'], 'total_seconds': time.perf_counter() - start,
                'peak_rss_mib': max(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss) / 1024,
+               'hardware_vcpus': os.cpu_count(), 'hardware_description': platform.platform(),
+               'inference_seconds': float(inference[1]), 'inference_peak_process_rss_mib': float(inference[2]),
+               'inference_provenance': 'Captured synthetic demo stdout; process RSS high-water mark includes earlier training allocations.',
                'note': 'Parametric synthetic references only; no claim of real vessel detection. OOF ensemble weights selected on OOF.'}
     (tables / 'metrics_summary.json').write_text(json.dumps(summary, indent=2))
     print('ABLATIONS\n' + ablations.to_string(index=False))

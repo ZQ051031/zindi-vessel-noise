@@ -143,5 +143,10 @@
   "model_bytes": 644824,
   "total_seconds": 50.37874663299999,
   "peak_rss_mib": 336.765625,
+  "hardware_vcpus": 8,
+  "hardware_description": "8-vCPU x86_64 KVM VM, Intel Xeon processor; lscpu verified during documentation build",
+  "inference_seconds": 1.811,
+  "inference_peak_process_rss_mib": 296.6,
+  "inference_provenance": "Same committed synthetic_writeup run: captured stdout in /home/ubuntu/writeup_figures.log reported Inference seconds: 1.811; peak process RSS MiB: 296.6. 600 test examples; RSS is process high-water mark after training, not isolated inference allocation.",
   "note": "Parametric synthetic references only; no claim of real vessel detection. OOF ensemble weights selected on OOF."
 }
