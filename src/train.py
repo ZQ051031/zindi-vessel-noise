@@ -13,7 +13,7 @@ from .data import load_release, make_windows
 from .synthetic import write_synthetic_release, add_controlled_passages
 from .features import window_features
 from .models import estimators, MODEL_NAMES
-from .evaluate import rmse
+from .evaluate import rmse, bootstrap_ci
 
 
 def train(release=None, out_dir='models', augment_k=3, seed=42, group_by='site',
@@ -28,6 +28,7 @@ def train(release=None, out_dir='models', augment_k=3, seed=42, group_by='site',
     backgrounds, meta = make_windows(load_release(release, **loader_options))
     if not len(backgrounds):
         raise ValueError('No usable 15-minute windows')
+    meta['background_window_id'] = np.arange(len(meta))
     rng = np.random.default_rng(seed)
     xs, ys, ps, metas = [], [], [], []
     for _ in range(augment_k):
@@ -95,12 +96,17 @@ def train(release=None, out_dir='models', augment_k=3, seed=42, group_by='site',
                'validation_note': 'OOF base models; ensemble weights selected on OOF (selection estimate, not nested validation)',
                'SYNTHETIC_labels': True}
     metrics['oof']['ensemble'] = {'rmse': rmse(y, ensemble), 'score': 1 - rmse(y, ensemble)}
+    for i, name in enumerate(MODEL_NAMES + ['ensemble']):
+        pred = oof[:, i] if i < 4 else ensemble
+        for col in ['background_window_id', 'site']:
+            metrics['oof'][name][f'{col}_cluster_ci'] = bootstrap_ci(y, pred, metadata[col], seed=seed)
     for f, (_, va) in enumerate(splits):
         fold_metrics[f]['ensemble'] = rmse(y[va], ensemble[va])
     result = metadata.assign(share_added_vessel=y, presence=presence, fold=fold_ids, ensemble=ensemble, score_added_vessel=calibrated)
     for i, name in enumerate(MODEL_NAMES):
         result[name] = oof[:, i]
     result.to_parquet(root / 'SYNTHETIC_addition_oof.parquet', index=False)
+    x.to_parquet(root / 'SYNTHETIC_addition_features.parquet', index=False)
     (root / 'metrics.json').write_text(json.dumps(metrics, indent=2))
     print(json.dumps({k: v for k, v in metrics.items() if k not in ['features']}, indent=2))
     return bundle, metrics

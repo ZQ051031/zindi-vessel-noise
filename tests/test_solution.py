@@ -12,6 +12,9 @@ from src.models import predict_cube
 from src.predict import predict, COLUMNS
 from src.evaluate import rmse, leaderboard_score, evaluate_frames
 from src.pressure_map import pressure_map
+from src.explain import explain
+from src.ablation import ablate
+from src.evaluate import bootstrap_ci
 
 
 def test_schema(tmp_path):
@@ -145,5 +148,39 @@ def test_pressure_maps(trained):
     root, release, _, _ = trained
     summary = pressure_map(release, root / 'maps', root / 'model_a' / 'bundle.joblib')
     assert summary.SYNTHETIC.all()
-    for filename in ['station_map.png', 'daily_levels.png', 'daily_relative.png', 'inferred_share_map.png', 'station_summary.csv']:
+    for filename in ['station_map.png', 'daily_levels.png', 'daily_relative.png', 'inferred_share_map.png', 'station_summary.csv', 'daily_inferred_share.png', 'daily_excess_energy.png']:
         assert (root / 'maps' / filename).stat().st_size > 0
+
+
+def test_explanations_and_ablation(trained):
+    root, _, bundle, _ = trained
+    x = pd.read_parquet(root / 'model_a/SYNTHETIC_addition_features.parquet')
+    oof = pd.read_parquet(root / 'model_a/SYNTHETIC_addition_oof.parquet')
+    assert oof.groupby('background_window_id').size().eq(2).all()
+    assert oof.groupby('background_window_id').fold.nunique().eq(1).all()
+    tables = explain(bundle, x, root / 'explanations', synthetic=True)
+    assert len(tables['contributions_by_band']) == 25
+    assert tables['contributions_by_feature'].mean_absolute_contribution.sum() == pytest.approx(tables['contributions_by_family'].mean_absolute_contribution.sum())
+    assert len(tables['lightgbm_gain_top20']) == 20
+    assert (root / 'explanations/ridge_coefficients_top20.png').stat().st_size > 0
+    controls = ablate(x, oof, root / 'ablations', n_estimators=15)
+    assert len(controls) == 5
+    assert np.isfinite(controls.rmse).all()
+    with pytest.raises(ValueError, match='at least one'):
+        explain(bundle, x.iloc[:0], root / 'empty')
+    with pytest.raises(ValueError, match='Aligned'):
+        ablate(x.iloc[:0], oof, root / 'empty')
+
+
+def test_cluster_bootstrap():
+    y = np.tile([0., .2, .8, 1.], 3)
+    pred = y * .8
+    groups = np.tile(np.arange(4), 3)
+    ci = bootstrap_ci(y, pred, groups, n_boot=100)
+    assert 0 <= ci[0] <= leaderboard_score(y, pred) <= ci[1] <= 1
+    assert ci == bootstrap_ci(y, pred, groups, n_boot=100)
+    assert bootstrap_ci(y, y, groups) == [1., 1.]
+    with pytest.raises(ValueError, match='nonempty'):
+        bootstrap_ci([], [])
+    with pytest.raises(ValueError, match='aligned'):
+        bootstrap_ci(y, pred, [0])

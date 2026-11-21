@@ -18,7 +18,11 @@ def leaderboard_score(y, pred):
 def bootstrap_ci(y, pred, groups=None, n_boot=300, seed=42):
     rng = np.random.default_rng(seed)
     y, pred = np.asarray(y), np.asarray(pred)
+    if y.ndim != 1 or y.shape != pred.shape or not len(y) or not np.isfinite(y).all() or not np.isfinite(pred).all():
+        raise ValueError('Bootstrap requires nonempty, matching finite 1D arrays')
     groups = np.arange(len(y)) if groups is None else np.asarray(groups)
+    if len(groups) != len(y) or pd.isna(groups).any() or n_boot < 1:
+        raise ValueError('Bootstrap requires nonmissing groups aligned with observations and n_boot > 0')
     unique = np.unique(groups)
     blocks = [np.flatnonzero(groups == g) for g in unique]
     scores = []
@@ -37,7 +41,7 @@ def evaluate_frames(sub, labels, seed=42):
     result = {'rmse': rmse(y, p), 'leaderboard_score': leaderboard_score(y, p),
               'auc': float(roc_auc_score(presence, merged.score_added_vessel)) if len(np.unique(presence)) > 1 else None,
               'iid_ci': bootstrap_ci(y, p, seed=seed), 'by_share_bin': {}}
-    for col in ['site', 'day']:
+    for col in ['site', 'day', 'background_window_id']:
         if col in merged:
             result[f'{col}_cluster_ci'] = bootstrap_ci(y, p, merged[col], seed=seed)
     for lo, hi in zip([0, .1, .3, .6], [.1, .3, .6, 1.01]):

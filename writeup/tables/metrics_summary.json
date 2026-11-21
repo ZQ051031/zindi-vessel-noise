@@ -1,0 +1,147 @@
+{
+  "SYNTHETIC": true,
+  "seed": 42,
+  "oof": {
+    "baseline": {
+      "rmse": 0.26237658532479224,
+      "score": 0.7376234146752078,
+      "background_window_id_cluster_ci": [
+        0.7257567430728682,
+        0.7497971798684241
+      ],
+      "site_cluster_ci": [
+        0.7307401902984815,
+        0.7440728326959256
+      ]
+    },
+    "isotonic": {
+      "rmse": 0.21748634529248595,
+      "score": 0.782513654707514,
+      "background_window_id_cluster_ci": [
+        0.775254692396421,
+        0.7903448110856038
+      ],
+      "site_cluster_ci": [
+        0.7777714499550652,
+        0.7887425704195008
+      ]
+    },
+    "ridge": {
+      "rmse": 0.04827267277790344,
+      "score": 0.9517273272220965,
+      "background_window_id_cluster_ci": [
+        0.9487594307853281,
+        0.9540835836594543
+      ],
+      "site_cluster_ci": [
+        0.9507576521360819,
+        0.9527509667137607
+      ]
+    },
+    "lightgbm": {
+      "rmse": 0.0479524868136831,
+      "score": 0.9520475131863169,
+      "background_window_id_cluster_ci": [
+        0.9494642547685186,
+        0.9546955976542942
+      ],
+      "site_cluster_ci": [
+        0.9478735186225186,
+        0.9566602201123153
+      ]
+    },
+    "ensemble": {
+      "rmse": 0.04263064317792954,
+      "score": 0.9573693568220705,
+      "background_window_id_cluster_ci": [
+        0.9547127924465052,
+        0.959722533735312
+      ],
+      "site_cluster_ci": [
+        0.9540947913763149,
+        0.9613283259682552
+      ]
+    }
+  },
+  "heldout": {
+    "rmse": 0.03911570179075455,
+    "leaderboard_score": 0.9608842982092455,
+    "auc": 0.9920718404238741,
+    "iid_ci": [
+      0.9571277586334289,
+      0.9647046471773725
+    ],
+    "by_share_bin": {
+      "0-0.1": {
+        "n": 299,
+        "rmse": 0.02433335756017047
+      },
+      "0.1-0.3": {
+        "n": 132,
+        "rmse": 0.04588422570048505
+      },
+      "0.3-0.6": {
+        "n": 95,
+        "rmse": 0.05280294956555123
+      },
+      "0.6-1.01": {
+        "n": 74,
+        "rmse": 0.05175293491261012
+      }
+    },
+    "site_cluster_ci": [
+      0.9575894203686334,
+      0.9634213175705917
+    ],
+    "baseline_score": 0.7349132503403351,
+    "SYNTHETIC": true,
+    "demo_seconds": 38.639618601999985
+  },
+  "ablations": [
+    {
+      "control": "excess_only",
+      "n_features": 1,
+      "rmse": 0.21748634529248595,
+      "score": 0.782513654707514,
+      "cluster_ci_low": 0.775254692396421,
+      "cluster_ci_high": 0.7903448110856038
+    },
+    {
+      "control": "received_energy",
+      "n_features": 1,
+      "rmse": 0.23543817634294642,
+      "score": 0.7645618236570536,
+      "cluster_ci_low": 0.7575424806058538,
+      "cluster_ci_high": 0.7718102744094899
+    },
+    {
+      "control": "spectral_only",
+      "n_features": 100,
+      "rmse": 0.05536348554107429,
+      "score": 0.9446365144589257,
+      "cluster_ci_low": 0.9416485556874512,
+      "cluster_ci_high": 0.94755782466896
+    },
+    {
+      "control": "temporal_only",
+      "n_features": 16,
+      "rmse": 0.15868841743112697,
+      "score": 0.8413115825688731,
+      "cluster_ci_low": 0.8338181658705082,
+      "cluster_ci_high": 0.8487524732918779
+    },
+    {
+      "control": "all_features",
+      "n_features": 257,
+      "rmse": 0.0479524868136831,
+      "score": 0.9520475131863169,
+      "cluster_ci_low": 0.9494642547685186,
+      "cluster_ci_high": 0.9546955976542942
+    }
+  ],
+  "training_seconds": 20.71530433999999,
+  "model_bytes": 644824,
+  "total_seconds": 50.37874663299999,
+  "peak_rss_mib": 336.765625,
+  "note": "Parametric synthetic references only; no claim of real vessel detection. OOF ensemble weights selected on OOF."
+}

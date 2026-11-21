@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from .data import load_release, load_stations, make_windows, release_root
 from .schema import BAND_NAMES
-from .features import GROUPS, dbsum
+from .features import GROUPS, dbsum, window_features
 from .models import predict_cube
 
 
@@ -49,22 +49,49 @@ def pressure_map(release, out_dir, model=None, lon_col=None, lat_col=None, stati
         share, _ = predict_cube(bundle, cube)
         inferred = meta.assign(inferred_added_vessel_like_share=share).groupby('site').inferred_added_vessel_like_share.mean()
         summary = summary.merge(inferred, on='site', how='left')
+        window_daily = meta.assign(day=meta.t.dt.floor('D'), inferred_share=share,
+                                   excess_energy=window_features(cube).excess.to_numpy())
+        for value in ['inferred_share', 'excess_energy']:
+            daily = window_daily.pivot_table(index='site', columns='day', values=value, aggfunc='mean')
+            daily.to_csv(out / f'daily_{value}.csv')
+            fig, ax = plt.subplots(figsize=(10, 5))
+            im = ax.imshow(daily, aspect='auto', vmin=0, vmax=1, cmap='viridis')
+            ax.set_yticks(range(len(daily)), daily.index)
+            ax.set_xticks(range(len(daily.columns)), [str(d.date()) for d in daily.columns])
+            ax.set_title(title + 'Daily mean ' + value.replace('_', ' ') + ' — NOT measured vessel share')
+            fig.colorbar(im, ax=ax, label='Window fraction proxy')
+            fig.tight_layout()
+            fig.savefig(out / f'daily_{value}.png', dpi=150)
+            plt.close(fig)
     def scatter(column, label, filename):
         fig, ax = plt.subplots(figsize=(9, 6))
-        plot = ax.scatter(summary.lon, summary.lat, c=summary[column], s=30 + 300 * summary.coverage, cmap='viridis')
+        size = lambda coverage: 30 + 500 * np.asarray(coverage) ** 2
+        plot = ax.scatter(summary.lon, summary.lat, c=summary[column], s=size(summary.coverage), cmap='viridis')
         for _, r in summary.iterrows():
-            ax.annotate(r.site, (r.lon, r.lat), xytext=(5, 5), textcoords='offset points')
+            ax.annotate(f'{r.site}\n{100 * r.coverage:.1f}% coverage', (r.lon, r.lat),
+                        xytext=(10, 8), textcoords='offset points', fontsize=8, annotation_clip=False)
         ax.set(xlabel='Longitude (degrees)', ylabel='Latitude (degrees)', title=title + label)
         ax.set_aspect(1 / max(.1, np.cos(np.deg2rad(summary.lat.mean()))))
-        xmin, xmax = ax.get_xlim()
-        ymin, ymax = ax.get_ylim()
-        km = max(1, round((xmax - xmin) * 111 * np.cos(np.deg2rad(summary.lat.mean())) / 4))
-        x, y = xmin + .1 * (xmax - xmin), ymin + .08 * (ymax - ymin)
-        ax.plot([x, x + km / (111 * np.cos(np.deg2rad(summary.lat.mean())))], [y, y], color='black', lw=3)
-        ax.text(x, y, f'{km} km', va='bottom')
+        dx = max(.1, summary.lon.max() - summary.lon.min())
+        dy = max(.1, summary.lat.max() - summary.lat.min())
+        ax.set_xlim(summary.lon.min() - .25 * dx, summary.lon.max() + .65 * dx)
+        ax.set_ylim(summary.lat.min() - .6 * dy, summary.lat.max() + .4 * dy)
+        handles = [ax.scatter([], [], s=size(c), color='gray', label=f'{c:.0%}') for c in [.25, .5, 1.]]
+        ax.legend(handles=handles, title='Minute coverage', loc='upper left', framealpha=1, labelspacing=1.2)
+        km = max(1, round(dx * 111 * np.cos(np.deg2rad(summary.lat.mean())) / 4))
+        # A dedicated inset reserves a corner below all stations, including its opaque background.
+        scale = ax.inset_axes([.58, .03, .36, .12], facecolor='white')
+        scale.set_xlim(0, 1)
+        scale.set_ylim(0, 1)
+        span = ax.get_xlim()[1] - ax.get_xlim()[0]
+        fraction = km / (111 * np.cos(np.deg2rad(summary.lat.mean()))) / span / .36
+        scale.plot([.08, .08 + fraction], [.35, .35], color='black', lw=3)
+        scale.text(.08, .55, f'{km} km', fontsize=9)
+        scale.set_xticks([])
+        scale.set_yticks([])
         fig.colorbar(plot, ax=ax, label=label)
         fig.tight_layout()
-        fig.savefig(out / filename, dpi=120)
+        fig.savefig(out / filename, dpi=150)
         plt.close(fig)
     scatter('median_uncalibrated_export_db', 'Total sound: uncalibrated export dB (common bands)', 'station_map.png')
     if model:
@@ -79,7 +106,7 @@ def pressure_map(release, out_dir, model=None, lon_col=None, lat_col=None, stati
         ax.set_title(title + 'Daily median total sound: ' + label)
         fig.colorbar(im, ax=ax, label=label)
         fig.tight_layout()
-        fig.savefig(out / filename, dpi=120)
+        fig.savefig(out / filename, dpi=150)
         plt.close(fig)
     summary.to_csv(out / 'station_summary.csv', index=False)
     return summary

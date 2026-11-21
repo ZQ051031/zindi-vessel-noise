@@ -1,0 +1,42 @@
+[
+  {
+    "control": "excess_only",
+    "n_features": 1,
+    "rmse": 0.21748634529248595,
+    "score": 0.782513654707514,
+    "cluster_ci_low": 0.775254692396421,
+    "cluster_ci_high": 0.7903448110856038
+  },
+  {
+    "control": "received_energy",
+    "n_features": 1,
+    "rmse": 0.23543817634294642,
+    "score": 0.7645618236570536,
+    "cluster_ci_low": 0.7575424806058538,
+    "cluster_ci_high": 0.7718102744094899
+  },
+  {
+    "control": "spectral_only",
+    "n_features": 100,
+    "rmse": 0.05536348554107429,
+    "score": 0.9446365144589257,
+    "cluster_ci_low": 0.9416485556874512,
+    "cluster_ci_high": 0.94755782466896
+  },
+  {
+    "control": "temporal_only",
+    "n_features": 16,
+    "rmse": 0.15868841743112697,
+    "score": 0.8413115825688731,
+    "cluster_ci_low": 0.8338181658705082,
+    "cluster_ci_high": 0.8487524732918779
+  },
+  {
+    "control": "all_features",
+    "n_features": 257,
+    "rmse": 0.0479524868136831,
+    "score": 0.9520475131863169,
+    "cluster_ci_low": 0.9494642547685186,
+    "cluster_ci_high": 0.9546955976542942
+  }
+]

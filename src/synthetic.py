@@ -22,6 +22,21 @@ def synthetic_background(n_windows, rng=None, site_offset=0):
         shape = (np.exp(-.5 * (np.log2(F / 600) / .65) ** 2) if kind == 0
                  else (F > 2000).astype(float) if kind == 1 else np.ones(25))
         db[i:i + length] += rng.uniform(2, 9) * shape
+    db += np.repeat(rng.uniform(-3, 3, n_windows), 15)[:, None]
+    for w in range(n_windows):
+        if rng.random() < .4:
+            kind = rng.integers(3)
+            time = np.arange(15)
+            envelope = np.exp(-.5 * ((time - rng.uniform(-2, 17)) / rng.uniform(2, 7)) ** 2)
+            if kind == 0:
+                shape = np.exp(-.5 * (np.log2(F / rng.uniform(60, 180)) / 1.4) ** 2)
+            elif kind == 1:
+                shape = np.maximum(0, np.log10(F / 100)) / 2
+                envelope = np.linspace(0, 1, 15) if rng.random() < .5 else np.linspace(1, 0, 15)
+            else:
+                shape = np.exp(-.5 * (np.log2(F / 600) / .7) ** 2)
+                envelope = 1 / (1 + np.exp(-(time - rng.uniform(3, 12))))
+            db[w * 15:(w + 1) * 15] += rng.uniform(3, 16) * envelope[:, None] * shape
     if rng.random() < .6:
         db[:, int(rng.integers(21, 25)):] = np.nan
     db[rng.random(db.shape) < .025] = np.nan
@@ -65,7 +80,8 @@ def vessel_passage_reference(rng, kind):
     energy *= np.exp(-r[:, None] * (F[None, :] / 1000) ** 1.4 * 1e-5)
     if rng.random() < .5:
         energy *= 1 + .2 * np.sin(np.log(F)[None, :] * 8 + r[:, None] / 100)
-    return energy + .003 * spectrum.mean()
+    ambient = rng.uniform(.001, .15) * spectrum.mean() * (F / 250) ** rng.uniform(-.6, .2)
+    return energy + ambient[None, :]
 
 
 def add_controlled_passages(background_cube_db, rng, p_none=.3):
