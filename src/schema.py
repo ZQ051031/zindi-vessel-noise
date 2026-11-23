@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 BAND_CENTRES = 10 ** (1.5 + np.arange(25) / 10)
+BAND_RELATIVE_TOLERANCE = .03
 N_MIN = 15
 BAND_NAMES = [f'TOL_{x:.0f}' if x >= 100 else f'TOL_{x:.1f}' for x in BAND_CENTRES]
 
@@ -11,7 +12,7 @@ BAND_NAMES = [f'TOL_{x:.0f}' if x >= 100 else f'TOL_{x:.1f}' for x in BAND_CENTR
 def band_index(value):
     value = float(value)
     j = int(np.argmin(abs(BAND_CENTRES - value)))
-    if abs(BAND_CENTRES[j] - value) / BAND_CENTRES[j] > .03:
+    if abs(BAND_CENTRES[j] - value) / BAND_CENTRES[j] > BAND_RELATIVE_TOLERANCE:
         raise ValueError(f'Unrecognised frequency {value}; expected one of 25 centres (3% tolerance)')
     return j
 

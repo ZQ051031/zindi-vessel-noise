@@ -6,7 +6,7 @@ import tempfile
 import zipfile
 import numpy as np
 import pandas as pd
-from .schema import BAND_NAMES, band_index
+from .schema import BAND_CENTRES, BAND_NAMES, BAND_RELATIVE_TOLERANCE, band_index
 
 
 @contextmanager
@@ -43,6 +43,8 @@ def detect_column(df, override, candidates, required=True):
 def load_release(path, site_col=None, time_col=None, dur_col=None,
                  drop_bad_flags=False, flag_cols=None, duration_tolerance=5):
     frames = []
+    min_hz = BAND_CENTRES[0] * (1 - BAND_RELATIVE_TOLERANCE)
+    max_hz = BAND_CENTRES[-1] * (1 + BAND_RELATIVE_TOLERANCE)
     with release_root(path) as root:
         files = sorted((root / 'acoustics').glob('*.parquet'))
         if not files:
@@ -68,12 +70,20 @@ def load_release(path, site_col=None, time_col=None, dur_col=None,
             for c in raw:
                 m = re.fullmatch(r'TOL_([0-9.]+)', c, re.I)
                 if m:
-                    j = band_index(m[1])
+                    frequency = float(m[1])
+                    # The release preserves export bands outside the 25 common bands.
+                    if not min_hz <= frequency <= max_hz:
+                        continue
+                    j = band_index(frequency)
                     if j in seen:
                         raise ValueError(f'Duplicate frequency in {file}: {c}')
                     seen.add(j)
                     out[BAND_NAMES[j]] = pd.to_numeric(raw[c], errors='raise')
-            frames.append(out.loc[keep])
+            screened = out.loc[keep].copy()
+            # The South African export contains flat -156.5 dB rows across all common bands.
+            flat_export_floor = screened[BAND_NAMES].eq(-156.5).all(axis=1)
+            screened.loc[flat_export_floor, BAND_NAMES] = np.nan
+            frames.append(screened)
     return pd.concat(frames, ignore_index=True)
 
 

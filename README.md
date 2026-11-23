@@ -2,12 +2,12 @@
 
 An open-source Python solution for the Zindi Underwater Vessel Noise Challenge, with tolerant release loading, physically motivated features, controlled-addition training, grouped validation, inference, uncertainty estimates, explanations and pressure-proxy maps.
 
-> **SYNTHETIC EXAMPLE — NOT REAL RESULTS.** All committed quantitative results and figures use invented backgrounds and parametric synthetic passage references. They are **not competition scores**, evidence of natural vessel detection, or calibrated acoustic-pressure measurements. The research PDF is a synthetic development report with explicitly marked real-data placeholders.
+> **SYNTHETIC RESEARCH WRITE-UP.** The research PDF and its figures use invented backgrounds and parametric synthetic passage references. The official-release workflow below trains on South African recordings with controlled additions and produces predictions for Zindi's test windows.
 
 ## HARD CONSTRAINTS
 
-- This repository/agent did **not** sign up, enrol, download competition data or submit anything. Those are the user's steps, subject to the competition terms.
-- No competition data, real station results, AIS or external acoustic corpora were used. No ONC or HearMyShip recordings were used. References in this version are **parametric synthetic templates**, not recorded vessel passages.
+- The pipeline uses local files. Obtain the official release through Zindi under the competition terms and keep the files in the gitignored `data/` directory.
+- Training references are **parametric synthetic templates**. The official release provides unlabelled South African backgrounds for those controlled additions.
 - Test inputs are **inference only**. Never fit, calibrate, normalise using population statistics, pseudo-label or train on `Test.csv`. Fixed independent per-window features are allowed.
 - Synthetic labels describe the *controlled addition*, not all naturally occurring vessel energy. Unlabelled real backgrounds are **not verified negatives**.
 - Open-source tools only; no AutoML. Seed 42 is the default. Never claim synthetic results as real South African results.
@@ -106,7 +106,7 @@ The first command writes `outputs/synthetic_demo/`. The second runs four synthet
 
 The committed larger run took 20.72 s for training, 38.64 s for the full demo and 50.38 s including figure/table generation on an 8-vCPU VM. Inference for 600 examples took 1.811 s (peak process RSS 296.6 MiB); the figure workflow's maximum per-process RSS was 336.77 MiB. The bundle was 644,824 bytes. These are observations, not performance guarantees; consult `writeup/tables/metrics_summary.json` for source values. The synthetic held-out score was 0.96088 and AUC 0.99207; **neither is a competition result**.
 
-## Real data: user downloads first
+## Run on the official release
 
 After obtaining the release under the competition rules, place exactly these files in `data/`:
 
@@ -116,10 +116,11 @@ data/Test.csv
 data/sample_submission.csv
 ```
 
-An extracted directory containing `acoustics/` and the supporting CSVs is also accepted by `--release`. Nothing here downloads or enrols automatically.
+An extracted directory containing `acoustics/` and the supporting CSVs is also accepted by `--release`.
 
 ```bash
 mkdir -p outputs/real
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
 python -m src.train \
   --release data/South_African_Real_Acoustics.zip \
   --out-dir models/real --augment-k 3 --seed 42
@@ -128,11 +129,13 @@ python -m src.predict \
   --sample data/sample_submission.csv --out outputs/real/submission.csv
 ```
 
-This trains on **real backgrounds plus synthetic additions**. Its validation labels are still synthetic and must not be presented as verified natural vessel labels. Actual full-release runtime and memory have not been measured; feature generation and multiple augmentation draws can be substantial. Inspect coverage/QC and use a user-prepared development subset when appropriate; this implementation is in-memory rather than a streaming trainer.
+This trains on **real backgrounds plus synthetic additions**. Held-out-site validation measures recovery of those controlled additions. The run writes metrics and the trained bundle to the gitignored `models/real/` directory. Predictions follow the official sample's ID order and are written to the gitignored `outputs/real/` directory.
+
+With Python 3.10.12 on an 8-vCPU Intel Xeon VM, the full release yielded 106,169 background windows and 318,507 training windows. Training, clustered bootstrap and artifact writes took 41 min 41 s with a peak process RSS of 6.02 GiB. Inference on 1,500 windows took 12.8 s with a peak process RSS of 254 MiB. The trained bundle was 671,192 bytes.
 
 ### Column overrides, quality flags and periods
 
-Automatic detection supports common site/time/duration names and numeric `TOL_*` frequencies. Missing bands remain NaN. The default duration filter retains `60 ± 5` seconds; it does not equate a quality pass with valid calibration. Flags are ignored unless requested:
+Automatic detection supports common site/time/duration names and numeric `TOL_*` frequencies. The release loader selects the 25 common bands and skips export frequencies outside that range. Missing bands remain NaN. It also masks rows with exactly `-156.5` dB in all 25 common bands, a flat export-floor pattern observed in the official release. The default duration filter retains `60 ± 5` seconds. Flags are ignored unless requested:
 
 ```bash
 python -m src.train --release data/South_African_Real_Acoustics.zip \

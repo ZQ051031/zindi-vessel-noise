@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import pytest
-from src.schema import cube_to_wide, read_test_csv
+from src.schema import BAND_NAMES, cube_to_wide, read_test_csv
 from src.synthetic import synthetic_background, add_controlled_passages, write_synthetic_release, make_synthetic_competition
 from src.data import load_release, make_windows
 from src.features import window_features
@@ -104,6 +104,38 @@ def test_loader_folder_zip(trained):
     bad_release.mkdir(parents=True)
     shutil.copy(root / 'bad.parquet', bad_release / 'site.parquet')
     assert len(load_release(bad_release.parent, drop_bad_flags=True)) == len(raw) - 2
+
+
+def test_loader_ignores_export_bands_outside_common_range(tmp_path):
+    acoustics = tmp_path / 'acoustics'
+    acoustics.mkdir()
+    path = acoustics / 'site.parquet'
+    raw = pd.DataFrame({
+        't': ['2026-01-01'], 'dur': [60],
+        'TOL_25.1': [10.], 'TOL_31.6': [20.],
+        'TOL_7943.3': [30.], 'TOL_10000': [40.],
+    })
+    raw.to_parquet(path)
+    loaded = load_release(tmp_path)
+    assert loaded.loc[0, ['TOL_31.6', 'TOL_7943']].tolist() == [20., 30.]
+    assert 'TOL_25.1' not in loaded and 'TOL_10000' not in loaded
+    raw.assign(TOL_900=50.).to_parquet(path)
+    with pytest.raises(ValueError, match='frequency'):
+        load_release(tmp_path)
+
+
+def test_loader_masks_flat_export_floor(tmp_path):
+    acoustics = tmp_path / 'acoustics'
+    acoustics.mkdir()
+    raw = pd.DataFrame(-156.5, index=range(2), columns=BAND_NAMES)
+    raw['t'] = ['2026-01-01 00:00', '2026-01-01 00:01']
+    raw['dur'] = 60
+    raw.loc[1, 'TOL_31.6'] = 40.
+    raw.to_parquet(acoustics / 'site.parquet')
+    loaded = load_release(tmp_path)
+    assert loaded.loc[0, BAND_NAMES].isna().all()
+    assert loaded.at[1, 'TOL_31.6'] == 40.
+    assert loaded.at[1, 'TOL_39.8'] == -156.5
 
 
 def test_pipeline_determinism_and_independence(trained):
