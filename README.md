@@ -118,6 +118,8 @@ data/sample_submission.csv
 
 An extracted directory containing `acoustics/` and the supporting CSVs is also accepted by `--release`.
 
+Start with the baseline to generate the training cache used by the LOSO workflow below.
+
 ```bash
 mkdir -p outputs/real
 export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
@@ -132,6 +134,38 @@ python -m src.predict \
 This trains on **real backgrounds plus synthetic additions**. Held-out-site validation measures recovery of those controlled additions. The run writes metrics and the trained bundle to the gitignored `models/real/` directory. Predictions follow the official sample's ID order and are written to the gitignored `outputs/real/` directory.
 
 With Python 3.10.12 on an 8-vCPU Intel Xeon VM, the full release yielded 106,169 background windows and 318,507 training windows. Training, clustered bootstrap and artifact writes took 41 min 41 s with a peak process RSS of 6.02 GiB. Inference on 1,500 windows took 12.8 s with a peak process RSS of 254 MiB. The trained bundle was 671,192 bytes.
+
+### Leave-one-station-out model selection
+
+Run the official-release training command above to create the baseline feature cache and model. The four-fold grouped reference and ten-fold leave-one-station-out (LOSO) validation share the same 318,507 examples. Candidate features add spectral ratios, within-window energy trajectories, and acoustic station embeddings fit from the training stations in each fold.
+
+```bash
+python -m src.loso_experiment --cache models/real --out-dir outputs/loso --jobs 4
+python -m src.loso_diagnostics replay --release data/South_African_Real_Acoustics.zip \
+  --cache models/real --out-dir outputs/loso
+python -m src.loso_diagnostics residuals --oof outputs/loso/loso_baseline_oof.parquet \
+  --out-dir outputs/loso
+python -m src.loso_features --legacy-path models/real/SYNTHETIC_addition_features.parquet \
+  --out-dir outputs/loso
+python -m src.loso_experiment --candidates --out-dir outputs/loso --jobs 4
+python -m src.loso_experiment --compare --out-dir outputs/loso
+python -m src.loso_submission --validation outputs/loso \
+  --baseline-model models/real/bundle.joblib --out models/real/loso_bundle.joblib
+python -m src.predict --test data/Test.csv --model models/real/loso_bundle.joblib \
+  --sample data/sample_submission.csv --out outputs/real/loso_submission.csv
+```
+
+The comparison ranks the two ensemble members by pooled LOSO RMSE. Each held-out station's blend coefficient and presence calibrators use out-of-fold predictions from the other stations. This is a model-selection estimate from a single set of outer folds. The comparison writes pooled and per-station metrics to `model_holdout_scores.csv` and records the adoption decision in `decision.json`. The refit command requires a winner with 1−RMSE ≥ 0.8987 and presence ROC AUC ≥ 0.87964. Candidate fold checkpoints in `outputs/loso/candidate_folds/` can resume the same run. Use a fresh output directory when changing the data or models.
+
+| Validation | 1−RMSE | RMSE | Presence ROC AUC |
+|---|---:|---:|---:|
+| Baseline, historical four grouped folds | 0.88872 | 0.11128 | 0.87964 |
+| Baseline, ten LOSO folds | 0.89100 | 0.10900 | 0.91992 |
+| Enriched LightGBM, ten LOSO folds | **0.91797** | **0.08203** | **0.96662** |
+| Enriched neural network, ten LOSO folds | 0.89452 | 0.10548 | 0.90800 |
+| LightGBM and neural network blend, ten LOSO folds | 0.91716 | 0.08284 | 0.96611 |
+
+The committed submission comes from the enriched LightGBM refit. All validation metrics measure controlled additions to the 106,169 real release backgrounds.
 
 ### Column overrides, quality flags and periods
 

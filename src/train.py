@@ -16,6 +16,36 @@ from .models import estimators, MODEL_NAMES
 from .evaluate import rmse, bootstrap_ci
 
 
+def fit_validation_fold(x_train, y_train, presence_train, x_valid, seed, n_estimators):
+    ridge, reg, clf = estimators(seed, n_estimators)
+    iso = IsotonicRegression(out_of_bounds='clip').fit(x_train.excess, y_train)
+    ridge.fit(x_train, y_train)
+    reg.fit(x_train, y_train)
+    if len(np.unique(presence_train)) > 1:
+        clf.fit(x_train, presence_train)
+        raw_prob = clf.predict_proba(x_valid)[:, 1]
+    else:
+        raw_prob = np.full(len(x_valid), presence_train.mean())
+    scores = np.column_stack([x_valid.excess, iso.predict(x_valid.excess),
+                              np.clip(ridge.predict(x_valid), 0, 1), np.clip(reg.predict(x_valid), 0, 1)])
+    return scores, raw_prob
+
+
+def calibrate_oof(raw_prob, presence, splits):
+    calibrated = np.empty(len(presence))
+    for tr, va in splits:
+        cal = IsotonicRegression(out_of_bounds='clip').fit(raw_prob[tr], presence[tr])
+        calibrated[va] = cal.predict(raw_prob[va])
+    return calibrated
+
+
+def ensemble_weights(oof, labels):
+    weights = nnls(oof, labels)[0]
+    if not weights.sum():
+        weights[-1] = 1.0
+    return weights / weights.sum()
+
+
 def train(release=None, out_dir='models', augment_k=3, seed=42, group_by='site',
           folds=4, n_estimators=180, synthetic_days=.5, zero_gate=False, **loader_options):
     start = time.perf_counter()
@@ -51,26 +81,13 @@ def train(release=None, out_dir='models', augment_k=3, seed=42, group_by='site',
     fold_ids = np.zeros(len(y), dtype=int)
     fold_metrics = []
     for fold, (tr, va) in enumerate(splits):
-        ridge, reg, clf = estimators(seed, n_estimators)
-        iso = IsotonicRegression(out_of_bounds='clip').fit(x.excess.iloc[tr], y[tr])
-        ridge.fit(x.iloc[tr], y[tr])
-        reg.fit(x.iloc[tr], y[tr])
-        if len(np.unique(presence[tr])) > 1:
-            clf.fit(x.iloc[tr], presence[tr])
-            raw_prob[va] = clf.predict_proba(x.iloc[va])[:, 1]
-        else:
-            raw_prob[va] = presence[tr].mean()
-        oof[va] = np.column_stack([x.excess.iloc[va], iso.predict(x.excess.iloc[va]),
-                                   np.clip(ridge.predict(x.iloc[va]), 0, 1), np.clip(reg.predict(x.iloc[va]), 0, 1)])
+        oof[va], raw_prob[va] = fit_validation_fold(
+            x.iloc[tr], y[tr], presence[tr], x.iloc[va], seed, n_estimators)
         fold_ids[va] = fold
         fold_metrics.append({name: rmse(y[va], oof[va, i]) for i, name in enumerate(MODEL_NAMES)})
-    weights = nnls(oof, y)[0]
-    weights = weights / weights.sum() if weights.sum() else np.array([0, 0, 0, 1.])
+    weights = ensemble_weights(oof, y)
     # Cross-fitted calibration keeps each row out of its calibration fit.
-    calibrated = np.empty(len(y))
-    for tr, va in splits:
-        cal = IsotonicRegression(out_of_bounds='clip').fit(raw_prob[tr], presence[tr])
-        calibrated[va] = cal.predict(raw_prob[va])
+    calibrated = calibrate_oof(raw_prob, presence, splits)
     ensemble = oof @ weights
     use_gate = bool(zero_gate and rmse(y, ensemble * calibrated) < rmse(y, ensemble))
     if use_gate:

@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from .schema import read_test_csv
 from .models import predict_cube
+from .loso_submission import PIPELINE, predict_enriched
 
 COLUMNS = ['ID', 'share_added_vessel', 'score_added_vessel']
 
@@ -19,7 +20,8 @@ def predict(test, model, sample, out):
     if list(template) != COLUMNS or template.ID.isna().any() or template.ID.duplicated().any() or set(template.ID) != set(ids):
         raise ValueError('Sample must have exact submission columns and matching unique IDs')
     bundle = joblib.load(model) if isinstance(model, (str, Path)) else model
-    share, score = predict_cube(bundle, cube)
+    predictor = predict_enriched if bundle.get('pipeline') == PIPELINE else predict_cube
+    share, score = predictor(bundle, cube)
     df = pd.DataFrame({'ID': ids, 'share_added_vessel': share, 'score_added_vessel': score})
     df = df.set_index('ID').loc[template.ID].reset_index()
     assert list(df) == COLUMNS and len(df) == len(template)
