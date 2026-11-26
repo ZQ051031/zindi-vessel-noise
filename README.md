@@ -165,7 +165,34 @@ The comparison ranks the two ensemble members by pooled LOSO RMSE. Each held-out
 | Enriched neural network, ten LOSO folds | 0.89452 | 0.10548 | 0.90800 |
 | LightGBM and neural network blend, ten LOSO folds | 0.91716 | 0.08284 | 0.96611 |
 
-The committed submission comes from the enriched LightGBM refit. All validation metrics measure controlled additions to the 106,169 real release backgrounds.
+All validation metrics measure controlled additions to the 106,169 real release backgrounds.
+
+### Reproduce the committed spectrogram CNN submission
+
+The Round 3 CNN uses the 15-minute grid of 25 released band powers and an approximate 25-bin mel projection. The two views retain the native low-frequency resolution and let the network learn patterns on the mel scale. The CNN predicts share and presence with separate outputs from a shared encoder.
+
+Install CPU PyTorch in the same environment. Run the official-release and LOSO commands above through `--candidates` to produce `outputs/loso/mixtures.npy`, `added_band_weights.npy`, and `candidate_oof.parquet`. These provide the controlled-addition examples, band diagnostics, and reference folds and scores.
+
+```bash
+python -m pip install 'torch==2.8.0+cpu' --index-url https://download.pytorch.org/whl/cpu
+mkdir -p outputs/round3
+python -m src.spectrogram_cnn --mixtures outputs/loso/mixtures.npy \
+  --out outputs/round3/spectrograms.npy
+python -m src.round3_cnn --cache outputs/loso --out outputs/round3 --jobs 8 --epochs 12
+python -m src.round3_submission --cache outputs/loso --validation outputs/round3 \
+  --out models/real/spectrogram_cnn.joblib --threads 4
+python -m src.predict --test data/Test.csv --model models/real/spectrogram_cnn.joblib \
+  --sample data/sample_submission.csv --out outputs/round3/submission.csv
+```
+
+The encoded cache uses about 3.6 GiB of disk. Validation reuses completed fold predictions from the output directory, so use a fresh directory when changing the data or model. The refit requires a checkpoint with 1−RMSE ≥ 0.9250 and presence ROC AUC ≥ 0.96662. The script writes pooled metrics to `decision.json` and diagnostics to `station_scores.csv` and `band_scores.csv`. AUC uses the same out-of-fold isotonic calibration procedure as R1. The decision file also records the CNN's raw AUC.
+
+| Ten-fold LOSO checkpoint | 1−RMSE | RMSE | Presence ROC AUC |
+|---|---:|---:|---:|
+| CNN, epoch 6 | 0.91746408 | 0.08253592 | 0.96903425 |
+| CNN, epoch 12 | **0.92827562** | **0.07172438** | **0.96962829** |
+
+The committed submission uses the 12-epoch CNN refit on all 318,507 controlled-addition examples. The official test file is used only during inference.
 
 ### Column overrides, quality flags and periods
 

@@ -20,8 +20,14 @@ def predict(test, model, sample, out):
     if list(template) != COLUMNS or template.ID.isna().any() or template.ID.duplicated().any() or set(template.ID) != set(ids):
         raise ValueError('Sample must have exact submission columns and matching unique IDs')
     bundle = joblib.load(model) if isinstance(model, (str, Path)) else model
-    predictor = predict_enriched if bundle.get('pipeline') == PIPELINE else predict_cube
-    share, score = predictor(bundle, cube)
+    pipeline = bundle.get('pipeline')
+    if pipeline == 'spectrogram_cnn':
+        from .round3_submission import predict_cnn
+
+        share, score = predict_cnn(bundle, cube)
+    else:
+        predictor = predict_enriched if pipeline == PIPELINE else predict_cube
+        share, score = predictor(bundle, cube)
     df = pd.DataFrame({'ID': ids, 'share_added_vessel': share, 'score_added_vessel': score})
     df = df.set_index('ID').loc[template.ID].reset_index()
     assert list(df) == COLUMNS and len(df) == len(template)
